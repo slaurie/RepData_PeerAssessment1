@@ -1,0 +1,203 @@
+---
+title: "Reproducible Research from JHU, Assignment1"
+author: "Steve Laurie"
+date: "1 February 2016"
+output: html_document
+---
+Load dplyr and lattice which we will use for "filter" and plotting.
+```{r}
+library(dplyr)
+library(lattice)
+```
+
+Load the data and have a first look.
+
+```{r}
+rawdata<-read.csv("activity.csv")
+dim(rawdata)
+head(rawdata)
+```
+
+How many days do we have data for?
+
+```{r}
+length(unique(rawdata$date))
+```
+
+Remove rows that have "NA"
+
+```{r}
+Good <- complete.cases(rawdata)
+cleandata <- (rawdata[Good,])
+dim(cleandata)
+length(unique(cleandata$date))
+```
+
+We can see that we have removed 8 entire days for which there was no data, leaving us with 53 for further analysis.
+
+
+### **What is the mean number of total steps taken per day?**
+
+Calculate total number of steps per day
+```{r}
+splitByDay<-split(cleandata, cleandata$date)
+sapply(splitByDay, function(x){sum(x[, "steps" ])})
+
+```
+
+Visual inspection of the table shows that that the greatest number of steps per day was just over 21k, therefore going to generate a histogram with 22 columns, each representing a 1000 steps.
+```{r}
+hist(sapply(splitByDay, function(x){sum(x[, "steps" ])}),  breaks=21, main="Histogram of number of steps taken per day over a 61-day period", xlab="Steps taken per day", ylab="Number of days")
+```
+
+Calculate mean and median number of steps per day
+```{r}
+summary(sapply(splitByDay, function(x){sum(x[, "steps" ])}))
+```
+
+We can see from the summary table above that the **median number of steps per day is 10,400, while the mean is 9,354**. The low mean is due to the large number of days (10), where the total number of steps was less than 1,000 (typically 0).
+
+## Make a time-series plot
+
+Here we are asked to make a time series plot for each moment of the day (across all the days) to see when most steps are taken. So, we can divide this into two steps:
+
+* Get the sum for each of the 288 5-min segements in a day
+* Generate and plot the time series
+
+Reusing from above
+```{r}
+splitByInterval<-split(cleandata, cleandata$interval)
+SumByInterval<-sapply(splitByInterval, function(x){sum(x[, "steps" ])})
+```
+
+Generate the plot
+
+```{r}
+IntervalTimeSeries<-ts(SumByInterval)
+plot.ts(IntervalTimeSeries, xy.labels=cleandata$interval)
+```
+
+It is clear from the time-series plot that there is a peak in the early morning, around about interval 105. 
+
+```{r}
+which.max(IntervalTimeSeries)
+```
+
+This shows us that it is exactly interval 104, which corresponds to 835-084a.m.
+
+## Imputing Missing Values
+
+### **Calculate and report the total no. of missing values in the dataset**
+
+We already have this from above when we looked for the complete.cases
+```{r}
+table(Good)
+```
+
+
+This indicates that **there are 2304 rows with missing data** i.e. "NAs"
+
+### Devise strategy for filling in all of the missing values - does not need to be sophisticated
+
+I am going to use just the median value for each interval
+
+```{r}
+MedianByInterval<-sapply(splitByInterval, function(x){median(x[, "steps" ])})
+```
+
+I found a video that illustrates how to do this:
+https://www.youtube.com/watch?v=w1t1a_doQoo
+
+Identify the rows which have an NA in the steps column, and replace with the median value for that inteval, in a new dataframe named Impute.
+
+```{r eval=FALSE}
+which(is.na(rawdata$steps))
+```
+```{r}
+MedianRep<-rep(MedianByInterval,61)
+Imputed <-cbind.data.frame(rawdata, Median = MedianRep)
+Imputed$steps[is.na(Imputed$steps)] <- Imputed$Median[is.na(Imputed$steps)]
+splitByDay2<-split(Imputed, Imputed$date)
+```
+
+Make a hist of the new data:
+
+```{r}
+hist(sapply(splitByDay2, function(x){sum(x[, "steps" ])}),  breaks=21, main="Histogram of number of steps taken per day following imputation, over a 61-day period", xlab="Steps taken per day", ylab="Number of days")
+```
+
+Check what the mean/median is per day using this new dataset. Main difference appears to be that a lot of the values formerly in bin1 have moved into bin2 - i.e. 1,000-2,000 steps per day.
+
+
+
+```{r}
+summary(sapply(splitByDay2, function(x){sum(x[, "steps" ])}))
+```
+
+Naturally the median hasn't changed, since this was what we used for imputing, but the mean has increased from 9354 to 9504 steps per day. 
+
+```{r}
+sapply(splitByDay2, function(x){sum(x[, "steps" ])})
+```
+
+# What about weekends? #
+
+Update dataframe and split in two
+
+```{r}
+Imputed2 <-cbind.data.frame(Imputed, Day = weekdays(as.Date(Imputed$date, abbr=T)))
+Imputed2$Weekday <- ifelse(Imputed2$Day == 'lunes'|Imputed2$Day =='martes'|Imputed2$Day =='miércoles'|Imputed2$Day =='jueves'|Imputed2$Day =='viernes',"weekday","weekend")
+Weekdays.df<-filter(Imputed2, Weekday=='weekday')
+Weekends.df<-filter(Imputed2, Weekday!='weekday')
+```
+Get summary for each  
+```{r}
+summary(sapply(split(Weekends.df, Weekends.df$date), function(x){sum(x[, "steps" ])}))
+summary(sapply(split(Weekdays.df, Weekdays.df$date), function(x){sum(x[, "steps" ])}))
+```
+
+```{r}
+WeekdaysByInterval<-split(Weekdays.df, Weekdays.df$interval)
+SumByForWeekdays<-sapply(WeekdaysByInterval, function(x){sum(x[, "steps" ])})
+WeekdaysInterval.ts<-ts(SumByForWeekdays)
+
+WeekendsByInterval<-split(Weekends.df, Weekends.df$interval)
+SumByForWeekends<-sapply(WeekendsByInterval, function(x){sum(x[, "steps" ])})
+WeekendsInterval.ts<-ts(SumByForWeekends)
+
+plot.ts(WeekdaysInterval.ts)
+plot.ts(WeekendsInterval.ts)
+```
+  
+Make the plots - maybe check http://www.fromthebottomoftheheap.net/2013/10/23/time-series-plots-with-lattice-and-ggplot/
+  
+```{r}
+Imputed2 <- transform(Imputed2, Weekday = factor(Weekday))
+```
+  
+```{r}
+class(Imputed2$Weekday)
+```
+
+
+```{r}
+xyplot(
+  ts(sapply(split(filter(Imputed2, Weekday!='weekday'), Imputed2$interval)
+, function(x){sum(x[, "steps" ])})) ~
+ts(sapply(split(filter(Imputed2, Weekday=='weekday'), Imputed2$interval)
+, function(x){sum(x[, "steps" ])})) | Imputed2$Weekday, layout = c(2, 1)
+)
+```
+  
+  That's not what I want  
+  
+```{r}
+xyplot(
+  sapply(split(Imputed2, Imputed2$date), function(x){sum(x[, "steps" ])}) ~ Imputed2$interval| Imputed2$Weekday, layout =c(1,2)
+)
+```
+  
+   
+  Neither is this. I have spent a lot of time on this, and I am obviously doing something silly, so I'll end here.  
+
+**Thanks for your time marking **
